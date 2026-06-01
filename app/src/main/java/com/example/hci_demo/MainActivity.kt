@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5))) {
                     Column(Modifier.padding(20.dp)) {
                         Text("TaskFlow 仿真环境", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text("当前主任务：深度阅读 PDF", color = Color.Gray)
                     }
 
                     // 核心悬浮组件

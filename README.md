@@ -1,4 +1,4 @@
-"""# TaskFlow - 多态悬浮胶囊任务流转系统
+# TaskFlow - 多态悬浮胶囊任务流转系统
 
 TaskFlow 是一款基于 **Jetpack Compose** 架构开发的跨应用多态悬浮交互系统。项目遵循人机交互（HCI）的“渐进式披露”与“最小认知负荷”原则，旨在解决大学生在移动端进行多任务并行时（如阅读文献时流转课程、查看导航、追踪多任务倒计时）频繁切换应用的痛点。
 
@@ -76,3 +76,57 @@ dependencyResolutionManagement {
 
 rootProject.name = "HCI_demo"
 include(":app")
+
+---
+
+## 📁 项目文件结构 (Project Structure)
+
+```
+HCI-CapsuleTable/
+├── build.gradle.kts              # 根项目构建脚本
+├── settings.gradle.kts           # 项目设置（含镜像源配置）
+├── gradle.properties             # Gradle 全局属性
+├── gradlew / gradlew.bat         # Gradle Wrapper 启动脚本
+├── .gitignore                    # Git 忽略规则
+│
+├── gradle/
+│   └── wrapper/
+│       └── gradle-wrapper.properties  # Gradle 版本与下载地址（已配置腾讯云镜像）
+│
+└── app/                          # 主应用模块
+    ├── build.gradle.kts          # 模块级构建脚本（依赖声明、编译配置）
+    ├── proguard-rules.pro        # ProGuard 混淆规则
+    │
+    └── src/
+        ├── main/
+        │   ├── AndroidManifest.xml           # 应用清单（权限声明、组件注册）
+        │   │
+        │   ├── java/com/example/hci_demo/
+        │   │   ├── MainActivity.kt           # 主 Activity（入口、悬浮窗演示场景）
+        │   │   │
+        │   │   └── ui/theme/
+        │   │       ├── Color.kt              # 全局颜色定义（渐变色、毛玻璃色板）
+        │   │       ├── Theme.kt              # Material3 主题配置
+        │   │       └── Type.kt              # 全局字体排版规范
+        │   │
+        │   └── res/
+        │       ├── drawable/
+        │       │   ├── ic_launcher_background.xml   # 启动图标背景
+        │       │   └── ic_launcher_foreground.xml   # 启动图标前景
+        │       ├── mipmap-anydpi-v26/
+        │       │   ├── ic_launcher.xml              # 自适应图标（普通）
+        │       │   └── ic_launcher_round.xml        # 自适应图标（圆形）
+        │       ├── mipmap-{hdpi,mdpi,xhdpi,xxhdpi,xxxhdpi}/
+        │       │   ├── ic_launcher.webp             # 各密度启动图标
+        │       │   └── ic_launcher_round.webp       # 各密度圆形图标
+        │       ├── values/
+        │       │   ├── colors.xml                   # 颜色资源
+        │       │   ├── strings.xml                  # 字符串资源
+        │       │   └── themes.xml                   # XML 主题资源
+        │       └── xml/
+        │           ├── backup_rules.xml             # 数据备份规则
+        │           └── data_extraction_rules.xml    # 数据提取规则
+        │
+        ├── test/                 # 本地单元测试
+        └── androidTest/          # 设备端仪器化测试
+```
