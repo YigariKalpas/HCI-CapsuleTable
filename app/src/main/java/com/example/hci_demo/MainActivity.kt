@@ -1,139 +1,316 @@
-package com.example.hci_demo // 确保包名与你创建项目时一致
+package com.example.hci_demo
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.example.hci_demo.logic.FloatingService
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                // 模拟底层 App 背景（多场景视图可以在此切换）
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5))) {
-                    Column(Modifier.padding(20.dp)) {
-                        Text("TaskFlow 仿真环境", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    }
+                FloatingServiceControlPanel()
+            }
+        }
+    }
+}
 
-                    // 核心悬浮组件
-                    TaskFlowFloatingWidget()
+// ═══════════════════════════════════════════════════
+//  控制面板 UI
+// ═══════════════════════════════════════════════════
+
+@Composable
+private fun FloatingServiceControlPanel() {
+    val context = LocalContext.current
+
+    // ── 权限与服务状态 ──
+    var hasOverlayPermission by remember {
+        mutableStateOf(Settings.canDrawOverlays(context))
+    }
+    var isServiceRunning by remember {
+        mutableStateOf(FloatingService.isRunning)
+    }
+
+    // 从系统设置页返回时刷新权限状态
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = Settings.canDrawOverlays(context)
+                isServiceRunning = FloatingService.isRunning
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // ── 主界面 ──
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F5F5))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            // 标题
+            Text(
+                "TaskFlow 仿真环境",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1A1A1A)
+            )
+            Text(
+                "多态悬浮胶囊 · 跨应用任务流转",
+                fontSize = 14.sp,
+                color = Color(0xFF888888)
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── 权限状态卡片 ──
+            PermissionCard(
+                hasPermission = hasOverlayPermission,
+                onRequestPermission = {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                    context.startActivity(intent)
+                }
+            )
+
+            // ── 服务控制卡片 ──
+            if (hasOverlayPermission) {
+                ServiceControlCard(
+                    isRunning = isServiceRunning,
+                    onToggle = {
+                        if (!isServiceRunning) {
+                            val intent = Intent(context, FloatingService::class.java)
+                            ContextCompat.startForegroundService(context, intent)
+                            isServiceRunning = true
+                        } else {
+                            context.stopService(Intent(context, FloatingService::class.java))
+                            isServiceRunning = false
+                        }
+                    }
+                )
+            }
+
+            // ── 使用说明 ──
+            HelpCard()
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+//  权限状态卡片
+// ═══════════════════════════════════════════════════
+
+@Composable
+private fun PermissionCard(hasPermission: Boolean, onRequestPermission: () -> Unit) {
+    val indicatorColor by animateColorAsState(
+        targetValue = if (hasPermission) Color(0xFF4CAF50) else Color(0xFFFF9800),
+        label = "permission-indicator"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 状态指示灯
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(indicatorColor)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "悬浮窗权限",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    color = Color(0xFF1A1A1A)
+                )
+                Text(
+                    if (hasPermission) "已授权 · 可在其他应用上方显示"
+                    else "未授权 · 需要开启「显示在其他应用的上层」",
+                    fontSize = 12.sp,
+                    color = Color(0xFF888888)
+                )
+            }
+
+            if (!hasPermission) {
+                TextButton(onClick = onRequestPermission) {
+                    Text("去授权", color = Color(0xFF1E88E5))
                 }
             }
         }
     }
 }
 
-// 悬浮窗形态枚举（由成员 C 的逻辑引擎驱动）
-enum class WidgetState {
-    CAPSULE, EXPANDED
-}
+// ═══════════════════════════════════════════════════
+//  服务控制卡片
+// ═══════════════════════════════════════════════════
 
 @Composable
-fun TaskFlowFloatingWidget() {
-    // --- 状态管理 ---
-    var currentState by remember { mutableStateOf(WidgetState.CAPSULE) }
-    var offsetX by remember { mutableStateOf(20f) }
-    var offsetY by remember { mutableStateOf(100f) }
+private fun ServiceControlCard(isRunning: Boolean, onToggle: () -> Unit) {
+    val gradientColors = if (isRunning)
+        listOf(Color(0xFFEF5350), Color(0xFFE53935))
+    else
+        listOf(Color(0xFF42A5F5), Color(0xFF1E88E5))
 
-    // --- 成员 B 关注：平滑尺寸动画 ---
-    val width by animateDpAsState(
-        targetValue = if (currentState == WidgetState.CAPSULE) 160.dp else 280.dp,
-        animationSpec = spring(dampingRatio = 0.75f)
-    )
-    val height by animateDpAsState(
-        targetValue = if (currentState == WidgetState.CAPSULE) 48.dp else 180.dp,
-        animationSpec = spring(dampingRatio = 0.75f)
-    )
-
-    Box(
-        modifier = Modifier
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .shadow(12.dp, RoundedCornerShape(24.dp))
-            .width(width)
-            .height(height)
-            .clip(RoundedCornerShape(24.dp))
-            // 成员 A 关注：毛玻璃与渐变视觉
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF42A5F5), Color(0xFF1E88E5))
-                )
-            )
-            .pointerInput(Unit) {
-                // --- 成员 B 关注：手势拖拽逻辑 ---
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    offsetX += dragAmount.x
-                    offsetY += dragAmount.y
-                }
-            }
-            .clickable {
-                // 点击切换形态（渐进式披露原则）
-                currentState = if (currentState == WidgetState.CAPSULE)
-                    WidgetState.EXPANDED else WidgetState.CAPSULE
-            }
-            .padding(12.dp)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        // --- 成员 A & C 关注：内容渲染 ---
-        AnimatedContent(
-            targetState = currentState,
-            transitionSpec = {
-                fadeIn() togetherWith fadeOut()
-            }
-        ) { state ->
-            if (state == WidgetState.CAPSULE) {
-                // 胶囊态：仅显示核心倒计时
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                        Text("15 min", color = Color.White)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text("用户交互技术", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "悬浮窗服务",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF1A1A1A)
+                    )
+                    Text(
+                        if (isRunning) "运行中 · 悬浮胶囊已显示" else "已停止",
+                        fontSize = 12.sp,
+                        color = Color(0xFF888888)
+                    )
                 }
-            } else {
-                // 展开态：显示完整课程路径
-                Column {
-                    Text("下一节课", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                    Text("用户交互技术 (HCI)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Divider(Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.2f))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Text(" 信工楼 402", color = Color.White, fontSize = 14.sp)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = { /* 模拟跳转地图 */ },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
-                        modifier = Modifier.fillMaxWidth().height(36.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text("展示其他信息", fontSize = 12.sp)
-                    }
+
+                // 运行状态指示灯
+                val dotColor by animateColorAsState(
+                    targetValue = if (isRunning) Color(0xFF4CAF50) else Color(0xFFBDBDBD),
+                    label = "service-indicator"
+                )
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(dotColor)
+                )
+            }
+
+            // 启动/停止按钮
+            Button(
+                onClick = onToggle,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                contentPadding = PaddingValues()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.linearGradient(gradientColors),
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isRunning) "停止悬浮窗" else "启动悬浮窗",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
                 }
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+//  使用说明卡片
+// ═══════════════════════════════════════════════════
+
+@Composable
+private fun HelpCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F7FF)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "使用说明",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = Color(0xFF1565C0)
+            )
+            HelpItem("拖拽", "按住胶囊自由拖动，松手自动吸附屏幕边缘")
+            HelpItem("点击", "轻触胶囊展开详情，再次点击收起")
+            HelpItem("跨应用", "启动后可切换到任意 App，悬浮窗始终在最上层")
+        }
+    }
+}
+
+@Composable
+private fun HelpItem(label: String, description: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1E88E5)
+        )
+        Text(
+            description,
+            fontSize = 12.sp,
+            color = Color(0xFF666666)
+        )
     }
 }
