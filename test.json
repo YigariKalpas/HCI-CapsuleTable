@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "total_tasks": 10,
+  "schedule": [
+    {
+      "id": "task_001",
+      "course_name": "人机交互技术",
+      "short_name": "HCI技术",
+      "teacher": "梁",
+      "classroom": "安楼 409",
+      "start_time": "08:00",
+      "end_time": "09:35",
+      "duration_minutes": 95,
+      "theme_color": "#853DE0",
+      "priority": "HIGH"
+    },
+    {
+      "id": "task_002",
+      "course_name": "移动应用开发",
+      "short_name": "移动开发",
+      "teacher": "李四",
+      "classroom": "实验楼 201-机房",
+      "start_time": "10:05",
+      "end_time": "11:40",
+      "duration_minutes": 95,
+      "theme_color": "#1E88E5",
+      "priority": "NORMAL"
+    },
+    {
+      "id": "task_003",
+      "course_name": "算法设计与分析",
+      "short_name": "算法分析",
+      "teacher": "王五",
+      "classroom": "主教楼 103",
+      "start_time": "14:00",
+      "end_time": "15:35",
+      "duration_minutes": 95,
+      "theme_color": "#E53935",
+      "priority": "HIGH"
+    },
+    {
+      "id": "task_004",
+      "course_name": "计算机网络",
+      "short_name": "计网",
+      "teacher": "赵二",
+      "classroom": "信工楼 501",
+      "start_time": "16:05",
+      "end_time": "17:40",
+      "duration_minutes": 95,
+      "theme_color": "#4CAF50",
+      "priority": "NORMAL"
+    },
+    {
+      "id": "task_005",
+      "course_name": "数据库系统概论",
+      "short_name": "数据库",
+      "teacher": "孙七",
+      "classroom": "主教楼 305",
+      "start_time": "19:00",
+      "end_time": "20:35",
+      "duration_minutes": 95,
+      "theme_color": "#FF9800",
+      "priority": "NORMAL"
+    },
+    {
+      "id": "task_006",
+      "course_name": "软件工程导论",
+      "short_name": "软工导论",
+      "teacher": "周十",
+      "classroom": "信工楼 303",
+      "start_time": "08:00",
+      "end_time": "09:35",
+      "duration_minutes": 95,
+      "theme_color": "#00ACC1",
+      "priority": "NORMAL"
+    },
+    {
+      "id": "task_007",
+      "course_name": "人工智能基础",
+      "short_name": "AI基础",
+      "teacher": "吴久",
+      "classroom": "科技楼 101-报告厅",
+      "start_time": "10:05",
+      "end_time": "11:40",
+      "duration_minutes": 95,
+      "theme_color": "#673AB7",
+      "priority": "HIGH"
+    },
+    {
+      "id": "task_008",
+      "course_name": "编译原理",
+      "short_name": "编译原理",
+      "teacher": "郑教授",
+      "classroom": "信工楼 404",
+      "start_time": "14:00",
+      "end_time": "15:35",
+      "duration_minutes": 95,
+      "theme_color": "#D81B60",
+      "priority": "HIGH"
+    },
+    {
+      "id": "task_009",
+      "course_name": "操作系统原理",
+      "short_name": "操作系统",
+      "teacher": "陈十三",
+      "classroom": "主教楼 202",
+      "start_time": "16:05",
+      "end_time": "17:40",
+      "duration_minutes": 95,
+      "theme_color": "#546E7A",
+      "priority": "NORMAL"
+    },
+    {
+      "id": "task_010",
+      "course_name": "学术规范与论文写作",
+      "short_name": "论文写作",
+      "teacher": "高十四",
+      "classroom": "图书馆 报告厅",
+      "start_time": "19:00",
+      "end_time": "21:25",
+      "duration_minutes": 145,
+      "theme_color": "#7CB342",
+      "priority": "LOW"
+    }
+  ]
+}

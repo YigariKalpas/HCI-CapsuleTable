@@ -1,16 +1,22 @@
 package com.example.hci_demo
 
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import android.net.Uri
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.example.hci_demo.logic.FloatingService
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,8 +130,18 @@ private fun FloatingServiceControlPanel() {
                         }
                     }
                 )
-            }
+                //插入json导入卡片
+                ImportJsonCard(
+                    onJsonImported = { jsonString ->
+                        // 【成员 C 的后端核心接收口】
+                        // 变量 jsonString 即为读取到的完整纯文本
 
+                        // 联调示例逻辑：
+                        // val taskList = Gson().fromJson(jsonString, TaskList::class.java)
+                        // FloatingService.updateTaskFlow(taskList)
+                    }
+                )
+            }
             // ── 使用说明 ──
             HelpCard()
         }
@@ -268,6 +285,117 @@ private fun ServiceControlCard(isRunning: Boolean, onToggle: () -> Unit) {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════
+//  json导入面板
+// ═══════════════════════════════════════════════════
+@Composable
+private fun ImportJsonCard(
+    // 预留给后端的 Lambda 表达式接口
+    // 可以在调用处直接获取解析到的 JSON 纯文本字符串
+    onJsonImported: (String) -> Unit = {}
+) {
+    val context = LocalContext.current
+
+    // 🚀 声明系统文件选择器：限定只能选择 application/json 格式的文件
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // 用户成功选择了文件，调用底层工具函数读取文本
+            val jsonString = readJsonFromUri(context, uri)
+            if (jsonString != null) {
+                // 触发后端预留接口，将字符串传递给后端逻辑层
+                onJsonImported(jsonString)
+                Toast.makeText(context, "📌 任务流 JSON 导入成功！", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "❌ 文件内容读取失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0x13853DE0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp) // 拉开一些间距，改善视觉体验
+        ) {
+            Text(
+                "动态配置流转",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = Color(0xFF673AB7)
+            )
+
+            Text(
+                "通过导入 JSON 配置文件，你可以自定义 TaskFlow 胶囊中展示的课表、倒计时任务以及高优先级提醒的流转顺序。",
+                fontSize = 12.sp,
+                color = Color(0xFF555555),
+                lineHeight = 18.sp
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            //新增的导入 JSON 按钮
+            Button(
+                onClick = {
+                    // 一键拉起手机系统的文件浏览器
+                    filePickerLauncher.launch("application/json")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF853DE0))
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "导入任务流配置 (JSON)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowForward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 安全文件流读取工具函数
+ * 利用 ContentResolver 绕过 Android 13/14+ 的分区存储限制，安全跨进程读取 JSON 文本
+ */
+private fun readJsonFromUri(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            java.io.BufferedReader(java.io.InputStreamReader(inputStream)).use { reader ->
+                val stringBuilder = java.lang.StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    stringBuilder.append(line)
+                }
+                stringBuilder.toString()
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
 
 // ═══════════════════════════════════════════════════
 //  使用说明卡片
