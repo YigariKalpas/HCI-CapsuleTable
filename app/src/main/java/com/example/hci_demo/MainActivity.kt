@@ -33,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.example.hci_demo.logic.FloatingService
+import com.example.hci_demo.logic.TaskFlowParser
 
 
 class MainActivity : ComponentActivity() {
@@ -90,7 +91,7 @@ private fun FloatingServiceControlPanel() {
         ) {
             // 标题
             Text(
-                "TaskFlow 仿真环境",
+                "TaskFlow课表®",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A)
@@ -133,12 +134,25 @@ private fun FloatingServiceControlPanel() {
                 //插入json导入卡片
                 ImportJsonCard(
                     onJsonImported = { jsonString ->
-                        // 【成员 C 的后端核心接收口】
-                        // 变量 jsonString 即为读取到的完整纯文本
+                        // 调用业务解析层将纯文本转化为内存 List 对象
+                        val parsedSchedule = TaskFlowParser.parseJsonToSchedule(jsonString)
 
-                        // 联调示例逻辑：
-                        // val taskList = Gson().fromJson(jsonString, TaskList::class.java)
-                        // FloatingService.updateTaskFlow(taskList)
+                        if (parsedSchedule != null && parsedSchedule.isNotEmpty()) {
+                            // 将数据交给前台服务引擎
+                            if (FloatingService.isRunning) {
+                                //此时可以提示禁用悬浮窗后再更新使得整体系统逻辑更简单
+                                Toast.makeText(context, "请关闭悬浮窗后导入", Toast.LENGTH_SHORT).show()
+                                //FloatingService.updateSchedule(parsedSchedule)
+                            } else {
+                                // 如果悬浮窗还没启动，可以先存进全局变量，等启动时再加载
+                                FloatingService.currentScheduleList.clear()
+                                FloatingService.currentScheduleList.addAll(parsedSchedule)
+
+                                Toast.makeText(context, "配置已保存，请开启悬浮窗查看效果", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "导入失败：JSON 字段不匹配或格式有误", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
             }
@@ -343,8 +357,14 @@ private fun ImportJsonCard(
             //新增的导入 JSON 按钮
             Button(
                 onClick = {
+                    if(FloatingService.isRunning){
+                        Toast.makeText(context, "请关闭悬浮窗后导入", Toast.LENGTH_SHORT).show()
+                    }
                     // 一键拉起手机系统的文件浏览器
-                    filePickerLauncher.launch("application/json")
+                    else {
+                        Toast.makeText(context, "导入json文件", Toast.LENGTH_SHORT).show()
+                        filePickerLauncher.launch("application/json")
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()

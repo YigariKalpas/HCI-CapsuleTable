@@ -60,6 +60,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1") // 协程
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // JSON解析
     implementation("androidx.lifecycle:lifecycle-service:2.8.0") // 前台服务支持
+    implementation("com.google.code.gson:gson:2.10.1")//更新gogole json解析库
 
     // 调试工具
     debugImplementation("androidx.compose.ui:ui-tooling")

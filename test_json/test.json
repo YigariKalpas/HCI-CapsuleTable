@@ -4,6 +4,7 @@
   "schedule": [
     {
       "id": "task_001",
+      "date": "001",
       "course_name": "人机交互技术",
       "short_name": "HCI技术",
       "teacher": "梁",
@@ -16,6 +17,7 @@
     },
     {
       "id": "task_002",
+      "date": "001",
       "course_name": "移动应用开发",
       "short_name": "移动开发",
       "teacher": "李四",
@@ -28,6 +30,7 @@
     },
     {
       "id": "task_003",
+      "date": "001",
       "course_name": "算法设计与分析",
       "short_name": "算法分析",
       "teacher": "王五",
@@ -40,6 +43,7 @@
     },
     {
       "id": "task_004",
+      "date": "001",
       "course_name": "计算机网络",
       "short_name": "计网",
       "teacher": "赵二",
@@ -52,6 +56,7 @@
     },
     {
       "id": "task_005",
+      "date": "001",
       "course_name": "数据库系统概论",
       "short_name": "数据库",
       "teacher": "孙七",
@@ -64,6 +69,7 @@
     },
     {
       "id": "task_006",
+      "date": "002",
       "course_name": "软件工程导论",
       "short_name": "软工导论",
       "teacher": "周十",
@@ -76,6 +82,7 @@
     },
     {
       "id": "task_007",
+      "date": "002",
       "course_name": "人工智能基础",
       "short_name": "AI基础",
       "teacher": "吴久",
@@ -88,6 +95,7 @@
     },
     {
       "id": "task_008",
+      "date": "002",
       "course_name": "编译原理",
       "short_name": "编译原理",
       "teacher": "郑教授",
@@ -99,19 +107,8 @@
       "priority": "HIGH"
     },
     {
-      "id": "task_009",
-      "course_name": "操作系统原理",
-      "short_name": "操作系统",
-      "teacher": "陈十三",
-      "classroom": "主教楼 202",
-      "start_time": "16:05",
-      "end_time": "17:40",
-      "duration_minutes": 95,
-      "theme_color": "#546E7A",
-      "priority": "NORMAL"
-    },
-    {
       "id": "task_010",
+      "date": "002",
       "course_name": "学术规范与论文写作",
       "short_name": "论文写作",
       "teacher": "高十四",

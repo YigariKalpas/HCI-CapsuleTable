@@ -1,5 +1,7 @@
 package com.example.hci_demo.logic
 
+import android.app.Service
+import com.example.hci_demo.model.CourseTask
 import android.animation.ValueAnimator
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -62,7 +64,7 @@ import kotlin.math.abs
 //  悬浮窗多态状态机（成员 C 的状态机控制）
 // ═══════════════════════════════════════════════════
 enum class WidgetState {
-    CAPSULE, EXPANDED
+    CAPSULE, EXPANDED,WEEKSHOW,HIDE //HIDE预留给贴边自动隐藏功能
 }
 
 // ═══════════════════════════════════════════════════
@@ -83,6 +85,41 @@ class FloatingService : LifecycleService() {
         /** 外部可观测的运行状态 */
         var isRunning = false
             private set
+        //用于记录json文件解析出的课程类型
+        var currentScheduleList = mutableStateListOf<CourseTask>()
+
+        var isPinnedLeft by mutableStateOf(false)
+
+        fun forceSnapToEdge(context: Context, service: FloatingService, state: WidgetState, widthDp: Int) {
+            val view = service.containerView ?: return
+            val wm = service.windowManager
+            val params = service.layoutParams
+            val screenWidth = context.resources.displayMetrics.widthPixels
+            val density = context.resources.displayMetrics.density
+
+            // 将 Compose 的 Dp 目标宽度加上外层 padding (32dp) 转化为真实的像素宽度
+            val realViewWidth = ((widthDp + 32) * density).toInt()
+
+            // 根据当前的贴边方向，重新精确计算 targetX
+            val targetX = if (isPinnedLeft) {
+                0 // 靠左贴边：坐标永远是 0
+            } else {
+                screenWidth - realViewWidth // 靠右贴边：屏幕宽度 减去 最新视图宽度
+            }
+
+            // 针对 HIDE 状态特殊优化：如果是隐藏态，靠右时可以让它往屏幕外多推一点，只露出半圆
+            val finalX = if (state == WidgetState.HIDE && !isPinnedLeft) {
+                targetX + (12 * density).toInt() // 右贴边隐藏时向右微调
+            } else {
+                targetX
+            }
+
+            // 平滑同步更新 WindowManager 布局
+            params.x = finalX
+            try {
+                wm.updateViewLayout(view, params)
+            } catch (_: Exception) {}
+        }
     }
 
     // ═════════════════════════════════════════════
@@ -265,6 +302,9 @@ class FloatingService : LifecycleService() {
         val centerX = layoutParams.x + viewWidth / 2
         val targetX = if (centerX < screenWidth / 2) 0 else screenWidth - viewWidth
 
+        //新增判断吸附确定后，更新全局贴边方向状态
+        isPinnedLeft = (targetX == 0)
+
         ValueAnimator.ofInt(layoutParams.x, targetX).apply {
             duration = 350
             interpolator = OvershootInterpolator(0.8f)
@@ -350,7 +390,6 @@ class FloatingService : LifecycleService() {
             return super.onTouchEvent(event)
         }
     }
-
     // ═════════════════════════════════════════════
     //  工具
     // ═════════════════════════════════════════════
@@ -360,101 +399,255 @@ class FloatingService : LifecycleService() {
 }
 
 // ═══════════════════════════════════════════════════
-//  Composable: 悬浮窗 UI（胶囊态 / 展开态）
+//  Composable: 悬浮窗 UI（修复作用域、支持 HIDE 左右贴边形变）
 // ═══════════════════════════════════════════════════
 
 @Composable
 private fun FloatingWidgetContent() {
+    //状态绑定 ──
+    val scheduleList = FloatingService.currentScheduleList
     var currentState by remember { mutableStateOf(WidgetState.CAPSULE) }
+    var currentVirtualTime by remember { mutableStateOf("07:30") }
+    val isLeft = FloatingService.isPinnedLeft
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    // 弹簧动画驱动的尺寸变化（成员 B 的弹簧动效）
+    val activeCourse = remember(scheduleList, currentVirtualTime) {
+        if (scheduleList.isEmpty()) null
+        else scheduleList.firstOrNull { it.end_time > currentVirtualTime } ?: scheduleList.first()
+    }
+
+    val countdownText = remember(activeCourse, currentVirtualTime) {
+        if (activeCourse == null) "-- min"
+        else {
+            try {
+                val startParts = activeCourse.start_time.split(":")
+                val virtualParts = currentVirtualTime.split(":")
+                val startMinutes = startParts[0].toInt() * 60 + startParts[1].toInt()
+                val virtualMinutes = virtualParts[0].toInt() * 60 + virtualParts[1].toInt()
+                val diff = startMinutes - virtualMinutes
+                if (diff > 0) "$diff min" else "进行中"
+            } catch (_: Exception) { "15 min" }
+        }
+    }
+
+    // ── 监听状态机切换，一旦变动，立刻强制通知外层 WindowManager 贴边更新 ──
+    LaunchedEffect(currentState) {
+        val targetWidthDp = when (currentState) {
+            WidgetState.HIDE -> 32
+            WidgetState.CAPSULE -> 170
+            WidgetState.EXPANDED -> 280
+            WidgetState.WEEKSHOW -> 340
+        }
+        (context as? FloatingService)?.let { service ->
+            FloatingService.forceSnapToEdge(context, service, currentState, targetWidthDp)
+        }
+    }
+
+    // ── 宽高的状态流转 ──
     val width by animateDpAsState(
-        targetValue = if (currentState == WidgetState.CAPSULE) 160.dp else 280.dp,
-        animationSpec = spring(dampingRatio = 0.75f),
+        targetValue = when (currentState) {
+            WidgetState.HIDE -> 32.dp
+            WidgetState.CAPSULE -> 170.dp
+            WidgetState.EXPANDED -> 280.dp
+            WidgetState.WEEKSHOW -> 340.dp
+        },
+        animationSpec = spring(dampingRatio = 0.55f),
         label = "capsule-width"
     )
+
     val height by animateDpAsState(
-        targetValue = if (currentState == WidgetState.CAPSULE) 48.dp else 180.dp,
-        animationSpec = spring(dampingRatio = 0.75f),
+        targetValue = when (currentState) {
+            WidgetState.HIDE -> 48.dp
+            WidgetState.CAPSULE -> 48.dp
+            WidgetState.EXPANDED -> 190.dp
+            WidgetState.WEEKSHOW -> 260.dp
+        },
+        animationSpec = spring(dampingRatio = 0.55f),
         label = "capsule-height"
     )
 
-    // 外层 padding 为阴影留出渲染空间
-    Box(modifier = Modifier.padding(16.dp)) {
+    // ── 动态形状裁剪（左/右各异半圆表现） ──
+    val containerShape = remember(currentState, isLeft) {
+        if (currentState == WidgetState.HIDE) {
+            if (isLeft) {
+                // 左贴边：左直右圆
+                RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 24.dp, bottomEnd = 24.dp)
+            } else {
+                // 右贴边：左圆右直
+                RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 0.dp, bottomEnd = 0.dp)
+            }
+        } else {
+            RoundedCornerShape(24.dp)
+        }
+    }
+
+    // ── 动态边缘间距（确保隐藏态完全贴死屏幕边框） ──
+    val outerPadding = when (currentState) {
+        WidgetState.HIDE -> {
+            if (isLeft) PaddingValues(top = 16.dp, bottom = 16.dp, start = 0.dp, end = 16.dp)
+            else PaddingValues(top = 16.dp, bottom = 16.dp, start = 16.dp, end = 0.dp)
+        }
+        else -> PaddingValues(16.dp)
+    }
+
+    // ── UI 渲染 ──
+    Box(modifier = Modifier.padding(outerPadding)) {
         Box(
             modifier = Modifier
-                .shadow(12.dp, RoundedCornerShape(24.dp))
+                .shadow(12.dp, containerShape)
                 .width(width)
                 .height(height)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(containerShape)
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(Color(0xFF42A5F5), Color(0xFF1E88E5))
+                        colors = if (activeCourse != null) {
+                            val parsedColor = Color(android.graphics.Color.parseColor(activeCourse.theme_color))
+                            listOf(parsedColor, parsedColor.copy(alpha = 0.8f))
+                        } else {
+                            listOf(Color(0xFF42A5F5), Color(0xFF1E88E5))
+                        }
                     )
                 )
                 .clickable {
-                    currentState = if (currentState == WidgetState.CAPSULE)
-                        WidgetState.EXPANDED else WidgetState.CAPSULE
+                    currentState = when (currentState) {
+                        WidgetState.HIDE -> WidgetState.CAPSULE
+                        WidgetState.CAPSULE -> WidgetState.EXPANDED
+                        WidgetState.EXPANDED -> WidgetState.CAPSULE
+                        WidgetState.WEEKSHOW -> WidgetState.EXPANDED
+                    }
                 }
-                .padding(12.dp)
+                .padding(if (currentState == WidgetState.HIDE) 2.dp else 14.dp)
         ) {
             AnimatedContent(
                 targetState = currentState,
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "state-transition"
             ) { state ->
-                if (state == WidgetState.CAPSULE) {
-                    // ── 胶囊态：核心倒计时 ──
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                            Text("15 min", color = Color.White)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "用户交互技术",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                if (scheduleList.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("请先在主面板导入JSON课表", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                     }
                 } else {
-                    // ── 展开态：完整课程路径 ──
-                    Column {
-                        Text(
-                            "下一节课",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            "用户交互技术 (HCI)",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        @Suppress("DEPRECATION")
-                        Divider(
-                            Modifier.padding(vertical = 8.dp),
-                            color = Color.White.copy(alpha = 0.2f)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(" 信工楼 402", color = Color.White, fontSize = 14.sp)
+                    when (state) {
+                        // ── 隐藏态：根据左右方向区分小点靠向 ──
+                        WidgetState.HIDE -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = if (isLeft) Alignment.CenterEnd else Alignment.CenterStart
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 6.dp)
+                                        .size(6.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(Color.White.copy(alpha = 0.7f))
+                                )
+                            }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = { /* 模拟跳转地图 */ },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White.copy(alpha = 0.2f)
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(36.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("展示其他信息", fontSize = 12.sp)
+
+                        // ── 胶囊态：渲染动态数据 ──
+                        WidgetState.CAPSULE -> {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
+                                    Text(countdownText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    activeCourse?.short_name ?: "无课程",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        // ── 展开态：单节课程渐进披露 ──
+                        WidgetState.EXPANDED -> {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Text(
+                                    "当前时刻: 周一 $currentVirtualTime (模拟)",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    activeCourse?.course_name ?: "未知课程",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+
+                                HorizontalDivider(
+                                    Modifier.padding(vertical = 8.dp),
+                                    color = Color.White.copy(alpha = 0.2f)
+                                )
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Text(" 教室: ${activeCourse?.classroom}", color = Color.White, fontSize = 13.sp)
+                                }
+                                Text(" 讲师: ${activeCourse?.teacher}", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
+                                Text(" 时间: ${activeCourse?.start_time} - ${activeCourse?.end_time}", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
+
+                                Spacer(Modifier.weight(1f))
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Button(
+                                        onClick = { currentState = WidgetState.WEEKSHOW },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                                        modifier = Modifier.weight(1f).height(32.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("完整周课表", fontSize = 11.sp, color = Color.White)
+                                    }
+
+                                    Button(
+                                        onClick = { currentState = WidgetState.HIDE },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.3f)),
+                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Text("模拟隐藏", fontSize = 11.sp, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── 周视图状态 ──
+                        WidgetState.WEEKSHOW -> {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("TaskFlow 课表管理器", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text("共 ${scheduleList.size} 节", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                                }
+
+                                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Color.White.copy(alpha = 0.2f))
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    scheduleList.take(4).forEach { course ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                                .padding(6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(course.short_name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                            Text("${course.start_time} @ ${course.classroom}", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.weight(1f))
+                                Text("提示：轻触任意区域收起", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp)
+                            }
                         }
                     }
                 }

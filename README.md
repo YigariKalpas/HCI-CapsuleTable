@@ -103,6 +103,8 @@ HCI-CapsuleTable/
         │   │
         │   ├── java/com/example/hci_demo/
         │   │   ├── MainActivity.kt           # 主 Activity（入口、悬浮窗演示场景）
+        │   │   ├── FloatingService.kt        # 悬浮窗服务
+        │   │   ├── ScheduleModel.kt          # Json文件格式定义
         │   │   │
         │   │   └── ui/theme/
         │   │       ├── Color.kt              # 全局颜色定义（渐变色、毛玻璃色板）
