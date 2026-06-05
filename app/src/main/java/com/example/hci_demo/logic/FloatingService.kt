@@ -59,7 +59,8 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.hci_demo.MainActivity
 import com.example.hci_demo.R
 import kotlin.math.abs
-
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.derivedStateOf
 // ═══════════════════════════════════════════════════
 //  悬浮窗多态状态机（成员 C 的状态机控制）
 // ═══════════════════════════════════════════════════
@@ -405,28 +406,90 @@ class FloatingService : LifecycleService() {
 @Composable
 private fun FloatingWidgetContent() {
     //状态绑定 ──
-    val scheduleList = FloatingService.currentScheduleList
+    // 获取当日日期编码 001~007
+    val todayDateCode = remember { getCurrentWeekDateCode() }
+    // 转为中文星期文案
+    val todayWeekText = remember { getWeekdayText(todayDateCode) }
+
+    // 过滤：只保留当天星期对应的课程
+    val scheduleList by remember {
+        derivedStateOf {
+            FloatingService.currentScheduleList.filter { it.weekday == todayDateCode }
+        }
+    }
+
     var currentState by remember { mutableStateOf(WidgetState.CAPSULE) }
-    var currentVirtualTime by remember { mutableStateOf("07:30") }
+
+    // 初始化：页面刚加载就获取当前真实时间
+    var currentVirtualTime by remember { mutableStateOf(getCurrentTime()) }
+
+    // 每秒自动更新真实时间
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentVirtualTime = getCurrentTime()// 重新拿当前时分
+            delay(1000) // 停顿1秒，再循环
+        }
+    }
+
     val isLeft = FloatingService.isPinnedLeft
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val activeCourse = remember(scheduleList, currentVirtualTime) {
-        if (scheduleList.isEmpty()) null
-        else scheduleList.firstOrNull { it.end_time > currentVirtualTime } ?: scheduleList.first()
+        val todayFinishCourse = scheduleList.firstOrNull { it.end_time > currentVirtualTime }
+        // 情况1：还有课没上完，沿用原有当天逻辑
+        if(todayFinishCourse != null){
+            todayFinishCourse
+        }else{
+            // 情况2：今日全部结课 → 去找次日第一天课程作为activeCourse
+            val todayCode = getCurrentWeekDateCode()
+            val nextCode = when(todayCode){
+                "001"->"002"
+                "002"->"003"
+                "003"->"004"
+                "004"->"005"
+                "005"->"006"
+                "006"->"007"
+                "007"->"001"
+                else->"001"
+            }
+            val nextDayAllCourse = FloatingService.currentScheduleList.filter { it.weekday == nextCode }
+            // 次日有课就选次日第一节，没有就设为null
+            if(nextDayAllCourse.isNotEmpty()) nextDayAllCourse.first() else null
+        }
     }
 
-    val countdownText = remember(activeCourse, currentVirtualTime) {
-        if (activeCourse == null) "-- min"
-        else {
-            try {
-                val startParts = activeCourse.start_time.split(":")
-                val virtualParts = currentVirtualTime.split(":")
-                val startMinutes = startParts[0].toInt() * 60 + startParts[1].toInt()
-                val virtualMinutes = virtualParts[0].toInt() * 60 + virtualParts[1].toInt()
-                val diff = startMinutes - virtualMinutes
-                if (diff > 0) "$diff min" else "进行中"
-            } catch (_: Exception) { "15 min" }
+    // 根据课程、当前时间计算状态文案：上课倒计时/进行中/已结束，全天结课自动查找次日首课倒计时
+    val countdownText = remember(activeCourse, currentVirtualTime, scheduleList) {
+        if (activeCourse == null) return@remember "近期无课程"
+
+        try {
+            val startParts = activeCourse.start_time.split(":")
+            val endParts = activeCourse.end_time.split(":")
+            val nowParts = currentVirtualTime.split(":")
+
+            val startMin = startParts[0].toInt() * 60 + startParts[1].toInt()
+            val endMin = endParts[0].toInt() * 60 + endParts[1].toInt()
+            val nowMin = nowParts[0].toInt() * 60 + nowParts[1].toInt()
+
+            //获取今天是周几
+            val todayCode = getCurrentWeekDateCode()
+
+            //如果是今天的课
+            if (activeCourse.weekday == todayCode) {
+                when {
+                    nowMin in startMin until endMin -> "进行中"
+                    nowMin < startMin -> "${startMin - nowMin} min"
+                    else -> "已结束"
+                }
+            }
+            //如果是明天/未来的课 → 自动 +1440 分钟
+            else {
+                val total = startMin + 1440 - nowMin
+                "$total min (明日)"
+            }
+
+        } catch (e: Exception) {
+            "-- min"
         }
     }
 
@@ -523,7 +586,8 @@ private fun FloatingWidgetContent() {
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "state-transition"
             ) { state ->
-                if (scheduleList.isEmpty()) {
+                // 只有在课表完全为空的时候才提示导入信息而不是当日课表为空的时候提示
+                if (FloatingService.currentScheduleList.isEmpty()){
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("请先在主面板导入JSON课表", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                     }
@@ -569,30 +633,59 @@ private fun FloatingWidgetContent() {
                         WidgetState.EXPANDED -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Text(
-                                    "当前时刻: 周一 $currentVirtualTime (模拟)",
+                                    "当前时刻: $todayWeekText $currentVirtualTime",
                                     color = Color.White.copy(alpha = 0.6f),
                                     fontSize = 11.sp
                                 )
-                                Text(
-                                    activeCourse?.course_name ?: "未知课程",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
 
-                                HorizontalDivider(
-                                    Modifier.padding(vertical = 8.dp),
-                                    color = Color.White.copy(alpha = 0.2f)
-                                )
+                                if (activeCourse == null) {
+                                    Text(
+                                        "近日无课",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                    Text(" 教室: ${activeCourse?.classroom}", color = Color.White, fontSize = 13.sp)
+                                    Text(
+                                        activeCourse.course_name,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+
+                                    HorizontalDivider(
+                                        Modifier.padding(vertical = 8.dp),
+                                        color = Color.White.copy(alpha = 0.2f)
+                                    )
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.LocationOn,
+                                            null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            " 教室: ${activeCourse?.classroom}",
+                                            color = Color.White,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Text(
+                                        " 讲师: ${activeCourse?.teacher}",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(start = 14.dp, top = 2.dp)
+                                    )
+                                    Text(
+                                        " 时间: ${activeCourse?.start_time} - ${activeCourse?.end_time}",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(start = 14.dp, top = 2.dp)
+                                    )
                                 }
-                                Text(" 讲师: ${activeCourse?.teacher}", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
-                                Text(" 时间: ${activeCourse?.start_time} - ${activeCourse?.end_time}", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
-
                                 Spacer(Modifier.weight(1f))
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -653,5 +746,44 @@ private fun FloatingWidgetContent() {
                 }
             }
         }
+    }
+}
+
+// 获取系统当前时分，格式HH:mm
+private fun getCurrentTime(): String {
+    val cal = java.util.Calendar.getInstance()
+    val hh = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val mm = cal.get(java.util.Calendar.MINUTE)
+    return "%02d:%02d".format(hh, mm)
+}
+
+// 获取今天是周几，返回 001=周一，002=周二...
+private fun getCurrentWeekDateCode(): String {
+    val cal = java.util.Calendar.getInstance()
+    val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+    // 系统周日=1，周一=2 ... 周六=7
+    return when (dayOfWeek) {
+        2 -> "001" // 周一
+        3 -> "002" // 周二
+        4 -> "003" // 周三
+        5 -> "004" // 周四
+        6 -> "005" // 周五
+        7 -> "006" // 周六
+        1 -> "007" // 周日
+        else -> "001"
+    }
+}
+
+// 把 001 → 周一，002→周二… 用于界面显示
+private fun getWeekdayText(dateCode: String): String {
+    return when (dateCode) {
+        "001" -> "周一"
+        "002" -> "周二"
+        "003" -> "周三"
+        "004" -> "周四"
+        "005" -> "周五"
+        "006" -> "周六"
+        "007" -> "周日"
+        else -> "周一"
     }
 }
