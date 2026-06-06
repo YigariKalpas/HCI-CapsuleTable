@@ -482,10 +482,9 @@ private fun FloatingWidgetContent() {
                     else -> "已结束"
                 }
             }
-            //如果是明天/未来的课 → 自动 +1440 分钟
+            //如果是第二天的课，标注“明日”
             else {
-                val total = startMin + 1440 - nowMin
-                "$total min (明日)"
+                "明日"
             }
 
         } catch (e: Exception) {
