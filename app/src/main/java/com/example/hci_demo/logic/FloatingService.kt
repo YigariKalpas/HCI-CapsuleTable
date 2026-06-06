@@ -61,6 +61,8 @@ import com.example.hci_demo.R
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+
 // ═══════════════════════════════════════════════════
 //  悬浮窗多态状态机（成员 C 的状态机控制）
 // ═══════════════════════════════════════════════════
@@ -397,6 +399,7 @@ class FloatingService : LifecycleService() {
 
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
+
 }
 
 // ═══════════════════════════════════════════════════
@@ -405,7 +408,7 @@ class FloatingService : LifecycleService() {
 
 @Composable
 private fun FloatingWidgetContent() {
-    //状态绑定 ──
+    // ── 1. 状态绑定 ──
     // 获取当日日期编码 001~007
     val todayDateCode = remember { getCurrentWeekDateCode() }
     // 转为中文星期文案
@@ -426,9 +429,22 @@ private fun FloatingWidgetContent() {
     // 每秒自动更新真实时间
     LaunchedEffect(Unit) {
         while (true) {
-            currentVirtualTime = getCurrentTime()// 重新拿当前时分
+            currentVirtualTime = getCurrentTime() // 重新拿当前时分
             delay(1000) // 停顿1秒，再循环
         }
+    }
+
+    /**
+     * 呼吸状态点（已移至外部或保留在此作用域均可，此处保留以防报错）
+     */
+    @Composable
+    fun HideStatusDot() {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Color.White.copy(alpha = 0.7f))
+        )
     }
 
     val isLeft = FloatingService.isPinnedLeft
@@ -436,31 +452,34 @@ private fun FloatingWidgetContent() {
 
     val activeCourse = remember(scheduleList, currentVirtualTime) {
         val todayFinishCourse = scheduleList.firstOrNull { it.end_time > currentVirtualTime }
-        // 情况1：还有课没上完，沿用原有当天逻辑
-        if(todayFinishCourse != null){
+        if (todayFinishCourse != null) {
             todayFinishCourse
-        }else{
-            // 情况2：今日全部结课 → 去找次日第一天课程作为activeCourse
+        } else {
             val todayCode = getCurrentWeekDateCode()
-            val nextCode = when(todayCode){
-                "001"->"002"
-                "002"->"003"
-                "003"->"004"
-                "004"->"005"
-                "005"->"006"
-                "006"->"007"
-                "007"->"001"
-                else->"001"
+            val nextCode = when (todayCode) {
+                "001" -> "002"
+                "002" -> "003"
+                "003" -> "004"
+                "004" -> "005"
+                "005" -> "006"
+                "006" -> "007"
+                "007" -> "001"
+                else -> "001"
             }
             val nextDayAllCourse = FloatingService.currentScheduleList.filter { it.weekday == nextCode }
-            // 次日有课就选次日第一节，没有就设为null
-            if(nextDayAllCourse.isNotEmpty()) nextDayAllCourse.first() else null
+            if (nextDayAllCourse.isNotEmpty()) nextDayAllCourse.first() else null
         }
     }
 
-    // 根据课程、当前时间计算状态文案：上课倒计时/进行中/已结束，全天结课自动查找次日首课倒计时
+    // ── 🎯 核心逻辑升级：计算倒计时文案（精准分离上课前倒计时与上课中下课倒计时） ──
+    // 引入一个布尔状态，专门用来标记当前是否「处于上课中」
+    var isCourseLive by remember { mutableStateOf(false) }
+
     val countdownText = remember(activeCourse, currentVirtualTime, scheduleList) {
-        if (activeCourse == null) return@remember "近期无课程"
+        if (activeCourse == null) {
+            isCourseLive = false
+            return@remember "近期无课程"
+        }
 
         try {
             val startParts = activeCourse.start_time.split(":")
@@ -471,32 +490,42 @@ private fun FloatingWidgetContent() {
             val endMin = endParts[0].toInt() * 60 + endParts[1].toInt()
             val nowMin = nowParts[0].toInt() * 60 + nowParts[1].toInt()
 
-            //获取今天是周几
             val todayCode = getCurrentWeekDateCode()
 
-            //如果是今天的课
             if (activeCourse.weekday == todayCode) {
                 when {
-                    nowMin in startMin until endMin -> "进行中"
-                    nowMin < startMin -> "${startMin - nowMin} min"
-                    else -> "已结束"
+                    // 1. 正在上课中：动态计算距离下课还有多少分钟
+                    nowMin in startMin until endMin -> {
+                        isCourseLive = true
+                        "${endMin - nowMin} min" // 👈 动态输出剩余时间，供隐藏态实时刷新
+                    }
+                    // 2. 未上课（上课前倒计时）
+                    nowMin < startMin -> {
+                        isCourseLive = false
+                        "${startMin - nowMin} min"
+                    }
+                    // 3. 已结束
+                    else -> {
+                        isCourseLive = false
+                        "已结束"
+                    }
                 }
-            }
-            //如果是明天/未来的课 → 自动 +1440 分钟
-            else {
+            } else {
+                // 明天或未来的课
+                isCourseLive = false
                 val total = startMin + 1440 - nowMin
                 "$total min (明日)"
             }
-
         } catch (e: Exception) {
+            isCourseLive = false
             "-- min"
         }
     }
 
-    // ── 监听状态机切换，一旦变动，立刻强制通知外层 WindowManager 贴边更新 ──
+    // ── 监听状态机切换 ──
     LaunchedEffect(currentState) {
         val targetWidthDp = when (currentState) {
-            WidgetState.HIDE -> 32
+            WidgetState.HIDE -> 36
             WidgetState.CAPSULE -> 170
             WidgetState.EXPANDED -> 280
             WidgetState.WEEKSHOW -> 340
@@ -509,7 +538,7 @@ private fun FloatingWidgetContent() {
     // ── 宽高的状态流转 ──
     val width by animateDpAsState(
         targetValue = when (currentState) {
-            WidgetState.HIDE -> 32.dp
+            WidgetState.HIDE -> 36.dp
             WidgetState.CAPSULE -> 170.dp
             WidgetState.EXPANDED -> 280.dp
             WidgetState.WEEKSHOW -> 340.dp
@@ -529,14 +558,11 @@ private fun FloatingWidgetContent() {
         label = "capsule-height"
     )
 
-    // ── 动态形状裁剪（左/右各异半圆表现） ──
     val containerShape = remember(currentState, isLeft) {
         if (currentState == WidgetState.HIDE) {
             if (isLeft) {
-                // 左贴边：左直右圆
                 RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 24.dp, bottomEnd = 24.dp)
             } else {
-                // 右贴边：左圆右直
                 RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 0.dp, bottomEnd = 0.dp)
             }
         } else {
@@ -544,7 +570,6 @@ private fun FloatingWidgetContent() {
         }
     }
 
-    // ── 动态边缘间距（确保隐藏态完全贴死屏幕边框） ──
     val outerPadding = when (currentState) {
         WidgetState.HIDE -> {
             if (isLeft) PaddingValues(top = 16.dp, bottom = 16.dp, start = 0.dp, end = 16.dp)
@@ -586,37 +611,83 @@ private fun FloatingWidgetContent() {
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "state-transition"
             ) { state ->
-                // 只有在课表完全为空的时候才提示导入信息而不是当日课表为空的时候提示
                 if (FloatingService.currentScheduleList.isEmpty()){
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("请先在主面板导入JSON课表", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                     }
                 } else {
                     when (state) {
-                        // ── 隐藏态：根据左右方向区分小点靠向 ──
+                        // ═══════════════════════════════════════════════════
+                        // 重构后的隐藏态
+                        // ═══════════════════════════════════════════════════
                         WidgetState.HIDE -> {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = if (isLeft) Alignment.CenterEnd else Alignment.CenterStart
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = 6.dp)
-                                        .size(6.dp)
-                                        .clip(androidx.compose.foundation.shape.CircleShape)
-                                        .background(Color.White.copy(alpha = 0.7f))
-                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                ) {
+                                    if (activeCourse != null && activeCourse.weekday == todayDateCode) {
+                                        if (isCourseLive) {
+                                            // 上课中 → 实时渲染真实的剩余时间 ──
+                                            Text(
+                                                text = countdownText.replace(" min", "m"), // 将 "25 min" 缩写为 "25m" 适配窄边缘
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                modifier = Modifier.graphicsLayer {
+                                                    rotationZ = if (isLeft) 90f else -90f
+                                                }
+                                            )
+                                        } else if (countdownText.contains("min")) {
+                                            // 未上课且今日有课 → 提取并展示上课地点 ──
+                                            val classroomRaw = activeCourse.classroom ?: "教室"
+                                            val displayLocation = remember(classroomRaw) {
+                                                // 过滤提取纯数字房间号（如"402"），若无数字则截取前两个汉字，避免长文本溢出
+                                                val numberPart = classroomRaw.filter { it.isDigit() }
+                                                if (numberPart.isNotEmpty()) numberPart else classroomRaw.take(2)
+                                            }
+
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(
+                                                    Icons.Default.LocationOn,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                                Text(
+                                                    text = displayLocation,
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        } else {
+                                            // 课程已结束等非敏感状态
+                                            HideStatusDot()
+                                        }
+                                    } else {
+                                        // 今日完全没有课程安排
+                                        HideStatusDot()
+                                    }
+                                }
                             }
                         }
 
-                        // ── 胶囊态：渲染动态数据 ──
+                        // ── 胶囊态（保持原样，如果上课中会同步显示动态时间文案，比原先更智能） ──
                         WidgetState.CAPSULE -> {
                             Row(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                                    Text(countdownText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    // 若上课中，这里会由“进行中”自动变更为动态实时时间，如 “35 min”；若喜欢在此处仍显示“进行中”，可在此处单独做 if 处理。
+                                    val displayCapsuleText = if (isCourseLive) "进行中($countdownText)" else countdownText
+                                    Text(displayCapsuleText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -629,7 +700,7 @@ private fun FloatingWidgetContent() {
                             }
                         }
 
-                        // ── 展开态：单节课程渐进披露 ──
+                        // ── 展开态：保持原样 ──
                         WidgetState.EXPANDED -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Text(
@@ -640,13 +711,9 @@ private fun FloatingWidgetContent() {
 
                                 if (activeCourse == null) {
                                     Text(
-                                        "近日无课",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
+                                        "近日无课", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold
                                     )
                                 } else {
-
                                     Text(
                                         activeCourse.course_name,
                                         color = Color.White,
@@ -710,7 +777,7 @@ private fun FloatingWidgetContent() {
                             }
                         }
 
-                        // ── 周视图状态 ──
+                        // ── 周视图状态：保持原样 ──
                         WidgetState.WEEKSHOW -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Row(
@@ -739,7 +806,7 @@ private fun FloatingWidgetContent() {
                                     }
                                 }
                                 Spacer(Modifier.weight(1f))
-                                Text("提示：轻触任意区域收起", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp)
+                                Text("轻触任意区域收起", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp)
                             }
                         }
                     }
@@ -762,6 +829,8 @@ private fun getCurrentWeekDateCode(): String {
     val cal = java.util.Calendar.getInstance()
     val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
     // 系统周日=1，周一=2 ... 周六=7
+    // debug
+    //return "007"
     return when (dayOfWeek) {
         2 -> "001" // 周一
         3 -> "002" // 周二
