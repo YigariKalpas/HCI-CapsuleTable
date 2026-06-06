@@ -105,7 +105,7 @@ class FloatingService : LifecycleService() {
             val targetX = if (isPinnedLeft) {
                 0 // 靠左贴边：坐标永远是 0
             } else {
-                screenWidth - realViewWidth // 靠右贴边：屏幕宽度 减去 最新视图宽度
+                screenWidth - realViewWidth + 11 // 靠右贴边：屏幕宽度 减去 最新视图宽度
             }
 
             // 针对 HIDE 状态特殊优化：如果是隐藏态，靠右时可以让它往屏幕外多推一点，只露出半圆
