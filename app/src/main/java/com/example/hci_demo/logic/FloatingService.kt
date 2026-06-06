@@ -471,7 +471,7 @@ private fun FloatingWidgetContent() {
         }
     }
 
-    // ── 🎯 核心逻辑升级：计算倒计时文案（精准分离上课前倒计时与上课中下课倒计时） ──
+    // ── 计算倒计时文案（精准分离上课前倒计时与上课中下课倒计时） ──
     // 引入一个布尔状态，专门用来标记当前是否「处于上课中」
     var isCourseLive by remember { mutableStateOf(false) }
 
@@ -494,17 +494,17 @@ private fun FloatingWidgetContent() {
 
             if (activeCourse.weekday == todayCode) {
                 when {
-                    // 1. 正在上课中：动态计算距离下课还有多少分钟
+                    //  正在上课中：动态计算距离下课还有多少分钟
                     nowMin in startMin until endMin -> {
                         isCourseLive = true
-                        "${endMin - nowMin} min" // 👈 动态输出剩余时间，供隐藏态实时刷新
+                        "${endMin - nowMin} min" // 动态输出剩余时间，供隐藏态实时刷新
                     }
-                    // 2. 未上课（上课前倒计时）
+                    //  未上课（上课前倒计时）
                     nowMin < startMin -> {
                         isCourseLive = false
                         "${startMin - nowMin} min"
                     }
-                    // 3. 已结束
+                    // 已结束
                     else -> {
                         isCourseLive = false
                         "已结束"
