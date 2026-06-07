@@ -513,8 +513,7 @@ private fun FloatingWidgetContent() {
             } else {
                 // 明天或未来的课
                 isCourseLive = false
-                val total = startMin + 1440 - nowMin
-                "$total min (明日)"
+                "明日"
             }
         } catch (e: Exception) {
             isCourseLive = false
