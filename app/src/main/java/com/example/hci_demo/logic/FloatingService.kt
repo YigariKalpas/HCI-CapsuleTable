@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -527,7 +529,7 @@ private fun FloatingWidgetContent() {
             WidgetState.HIDE -> 36
             WidgetState.CAPSULE -> 170
             WidgetState.EXPANDED -> 280
-            WidgetState.WEEKSHOW -> 340
+            WidgetState.WEEKSHOW -> 280
         }
         (context as? FloatingService)?.let { service ->
             FloatingService.forceSnapToEdge(context, service, currentState, targetWidthDp)
@@ -540,7 +542,7 @@ private fun FloatingWidgetContent() {
             WidgetState.HIDE -> 36.dp
             WidgetState.CAPSULE -> 170.dp
             WidgetState.EXPANDED -> 280.dp
-            WidgetState.WEEKSHOW -> 340.dp
+            WidgetState.WEEKSHOW -> 280.dp
         },
         animationSpec = spring(dampingRatio = 0.55f),
         label = "capsule-width"
@@ -636,17 +638,14 @@ private fun FloatingWidgetContent() {
                                                 text = countdownText.replace(" min", "m"), // 将 "25 min" 缩写为 "25m" 适配窄边缘
                                                 color = Color.White,
                                                 fontSize = 9.sp,
-                                                fontWeight = FontWeight.Black,
-                                                modifier = Modifier.graphicsLayer {
-                                                    rotationZ = if (isLeft) 90f else -90f
-                                                }
+                                                fontWeight = FontWeight.Black
                                             )
                                         } else if (countdownText.contains("min")) {
                                             // 未上课且今日有课 → 提取并展示上课地点 ──
                                             val classroomRaw = activeCourse.classroom ?: "教室"
                                             val displayLocation = remember(classroomRaw) {
                                                 // 过滤提取纯数字房间号（如"402"），若无数字则截取前两个汉字，避免长文本溢出
-                                                val numberPart = classroomRaw.filter { it.isDigit() }
+                                                val numberPart = classroomRaw.filter { it.isDigit() || (it in 'a'.. 'z') || (it in 'A'..'Z') }
                                                 if (numberPart.isNotEmpty()) numberPart else classroomRaw.take(2)
                                             }
 
@@ -655,7 +654,7 @@ private fun FloatingWidgetContent() {
                                                     Icons.Default.LocationOn,
                                                     contentDescription = null,
                                                     tint = Color.White,
-                                                    modifier = Modifier.size(10.dp)
+                                                    modifier = Modifier.size(12.dp)
                                                 )
                                                 Text(
                                                     text = displayLocation,
@@ -685,7 +684,7 @@ private fun FloatingWidgetContent() {
                             ) {
                                 Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
                                     // 若上课中，这里会由“进行中”自动变更为动态实时时间，如 “35 min”；若喜欢在此处仍显示“进行中”，可在此处单独做 if 处理。
-                                    val displayCapsuleText = if (isCourseLive) "进行中($countdownText)" else countdownText
+                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "${activeCourse?.start_time}"
                                     Text(displayCapsuleText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -739,18 +738,32 @@ private fun FloatingWidgetContent() {
                                             fontSize = 13.sp
                                         )
                                     }
-                                    Text(
-                                        " 讲师: ${activeCourse?.teacher}",
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(start = 14.dp, top = 2.dp)
-                                    )
-                                    Text(
-                                        " 时间: ${activeCourse?.start_time} - ${activeCourse?.end_time}",
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(start = 14.dp, top = 2.dp)
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            " 讲师: ${activeCourse?.teacher}",
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Notifications,
+                                            null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            " 时间: ${activeCourse?.start_time} - ${activeCourse?.end_time}",
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontSize = 12.sp,
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.weight(1f))
 
