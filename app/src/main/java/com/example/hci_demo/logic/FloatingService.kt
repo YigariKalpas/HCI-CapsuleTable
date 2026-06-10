@@ -644,7 +644,7 @@ private fun FloatingWidgetContent() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "倒计时 $countdownText"
+                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "倒计时$countdownText"
                                     Text(displayCapsuleText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -733,7 +733,7 @@ private fun FloatingWidgetContent() {
                                         modifier = Modifier.weight(1f).height(32.dp),
                                         contentPadding = PaddingValues(0.dp)
                                     ) {
-                                        Text("完整周课表", fontSize = 11.sp, color = Color.White)
+                                        Text("当日完整课表", fontSize = 11.sp, color = Color.White)
                                     }
 
                                     Button(
@@ -755,7 +755,7 @@ private fun FloatingWidgetContent() {
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("TaskFlow 课表管理器", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text("灵动课表管理器", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     Text("共 ${scheduleList.size} 节", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
                                 }
 
@@ -812,7 +812,7 @@ private fun getWeekdayText(dateCode: String): String {
         "001" -> "周一"
         "002" -> "周二"
         "003" -> "周三"
-        "004" -> "周死"
+        "004" -> "周四"
         "005" -> "周五"
         "006" -> "周六"
         "007" -> "周日"
