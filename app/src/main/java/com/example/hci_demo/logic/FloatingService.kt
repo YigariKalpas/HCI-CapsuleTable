@@ -644,8 +644,19 @@ private fun FloatingWidgetContent() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "倒计时$countdownText"
-                                    Text(displayCapsuleText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    val displayText = when {
+                                        countdownText == "明日"
+                                                || countdownText == "已结束"
+                                                || countdownText == "近期无课程" -> countdownText
+                                        isCourseLive -> "剩余$countdownText"
+                                        else -> "倒计时$countdownText"
+                                    }
+                                    Text(
+                                        displayText,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 Text(
