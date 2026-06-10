@@ -91,7 +91,7 @@ private fun FloatingServiceControlPanel() {
         ) {
             // 标题
             Text(
-                "TaskFlow课表®",
+                "灵动课表®",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A)

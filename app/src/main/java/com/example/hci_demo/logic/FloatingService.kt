@@ -18,6 +18,7 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -64,36 +65,35 @@ import kotlin.math.abs
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
-// ═══════════════════════════════════════════════════
-//  悬浮窗多态状态机（成员 C 的状态机控制）
-// ═══════════════════════════════════════════════════
 enum class WidgetState {
-    CAPSULE, EXPANDED,WEEKSHOW,HIDE //HIDE预留给贴边自动隐藏功能
+    CAPSULE, EXPANDED, WEEKSHOW, HIDE
 }
 
-// ═══════════════════════════════════════════════════
-//  FloatingService - 全局跨应用前台悬浮窗服务
-// ═══════════════════════════════════════════════════
 class FloatingService : LifecycleService() {
 
-    // ── 窗口管理 ──
     private lateinit var windowManager: WindowManager
     private var containerView: FloatingWindowContainer? = null
     private lateinit var layoutParams: WindowManager.LayoutParams
     private var viewTreeOwner: ViewTreeOwner? = null
 
+    private var inactivityJob: Job? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+
     companion object {
         private const val CHANNEL_ID = "floating_channel"
         private const val NOTIFICATION_ID = 1001
 
-        /** 外部可观测的运行状态 */
         var isRunning = false
             private set
-        //用于记录json文件解析出的课程类型
         var currentScheduleList = mutableStateListOf<CourseTask>()
-
         var isPinnedLeft by mutableStateOf(false)
+
+        var currentWidgetState by mutableStateOf(WidgetState.CAPSULE)
 
         fun forceSnapToEdge(context: Context, service: FloatingService, state: WidgetState, widthDp: Int) {
             val view = service.containerView ?: return
@@ -102,24 +102,20 @@ class FloatingService : LifecycleService() {
             val screenWidth = context.resources.displayMetrics.widthPixels
             val density = context.resources.displayMetrics.density
 
-            // 将 Compose 的 Dp 目标宽度加上外层 padding (32dp) 转化为真实的像素宽度
             val realViewWidth = ((widthDp + 32) * density).toInt()
 
-            // 根据当前的贴边方向，重新精确计算 targetX
             val targetX = if (isPinnedLeft) {
-                0 // 靠左贴边：坐标永远是 0
+                0
             } else {
-                screenWidth - realViewWidth + 11 // 靠右贴边：屏幕宽度 减去 最新视图宽度
+                screenWidth - realViewWidth + 11
             }
 
-            // 针对 HIDE 状态特殊优化：如果是隐藏态，靠右时可以让它往屏幕外多推一点，只露出半圆
             val finalX = if (state == WidgetState.HIDE && !isPinnedLeft) {
-                targetX + (12 * density).toInt() // 右贴边隐藏时向右微调
+                targetX + (12 * density).toInt()
             } else {
                 targetX
             }
 
-            // 平滑同步更新 WindowManager 布局
             params.x = finalX
             try {
                 wm.updateViewLayout(view, params)
@@ -127,10 +123,18 @@ class FloatingService : LifecycleService() {
         }
     }
 
-    // ═════════════════════════════════════════════
-    //  ComposeView 所需的生命周期宿主
-    //  独立于 Service 自身生命周期，避免时序冲突
-    // ═════════════════════════════════════════════
+    fun resetInactivityTimer() {
+        if (currentWidgetState == WidgetState.HIDE) {
+            inactivityJob?.cancel()
+            return
+        }
+
+        inactivityJob?.cancel()
+        inactivityJob = serviceScope.launch {
+            delay(5000)
+            currentWidgetState = WidgetState.HIDE
+        }
+    }
 
     private class ViewTreeOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
         private val lifecycleRegistry = LifecycleRegistry(this)
@@ -157,17 +161,11 @@ class FloatingService : LifecycleService() {
         }
     }
 
-    // ═════════════════════════════════════════════
-    //  生命周期
-    // ═════════════════════════════════════════════
-
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
         createNotificationChannel()
         startForegroundWithType()
-
         isRunning = true
     }
 
@@ -180,6 +178,7 @@ class FloatingService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        inactivityJob?.cancel()
         viewTreeOwner?.onDestroy()
         viewTreeOwner = null
         containerView?.let {
@@ -189,10 +188,6 @@ class FloatingService : LifecycleService() {
         isRunning = false
         super.onDestroy()
     }
-
-    // ═════════════════════════════════════════════
-    //  前台通知
-    // ═════════════════════════════════════════════
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -235,12 +230,7 @@ class FloatingService : LifecycleService() {
         }
     }
 
-    // ═════════════════════════════════════════════
-    //  WindowManager 悬浮窗创建
-    // ═════════════════════════════════════════════
-
     private fun showFloatingWindow() {
-        // ── LayoutParams ──
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
@@ -259,22 +249,17 @@ class FloatingService : LifecycleService() {
             y = dpToPx(120)
         }
 
-        // ── 独立的生命周期宿主 ──
         val owner = ViewTreeOwner()
         viewTreeOwner = owner
         owner.onCreate()
 
-        // ── 拖拽容器（窗口根视图）──
         val container = FloatingWindowContainer(this)
         containerView = container
 
-        // 在根视图上设置 ViewTree owners，
-        // 因为 Compose 的 WindowRecomposer 从窗口根视图向上查找
         container.setViewTreeLifecycleOwner(owner)
         container.setViewTreeSavedStateRegistryOwner(owner)
         container.setViewTreeViewModelStoreOwner(owner)
 
-        // ── ComposeView ──
         val composeView = ComposeView(this).apply {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
@@ -287,27 +272,20 @@ class FloatingService : LifecycleService() {
         }
         container.addView(composeView)
 
-        // ── 添加到屏幕 ──
         windowManager.addView(container, layoutParams)
-
-        // 激活 Compose 组合（必须在 addView 之后）
         owner.onResume()
-    }
 
-    // ═════════════════════════════════════════════
-    //  边缘吸附动画
-    // ═════════════════════════════════════════════
+        resetInactivityTimer()
+    }
 
     private fun snapToEdge() {
         val view = containerView ?: return
         val screenWidth = resources.displayMetrics.widthPixels
         val viewWidth = view.width
 
-        // 判断最近的边缘
         val centerX = layoutParams.x + viewWidth / 2
         val targetX = if (centerX < screenWidth / 2) 0 else screenWidth - viewWidth
 
-        //新增判断吸附确定后，更新全局贴边方向状态
         isPinnedLeft = (targetX == 0)
 
         ValueAnimator.ofInt(layoutParams.x, targetX).apply {
@@ -321,15 +299,6 @@ class FloatingService : LifecycleService() {
         }
     }
 
-    // ═════════════════════════════════════════════
-    //  拖拽拦截容器（处理 WindowManager 级别拖拽）
-    // ═════════════════════════════════════════════
-
-    /**
-     * 自定义 FrameLayout，通过 [onInterceptTouchEvent] 实现拖拽检测：
-     * - 小幅触摸 → 不拦截，交给子 ComposeView 处理（点击切换形态）
-     * - 超出 touchSlop → 拦截并拖拽整个悬浮窗，松手后触发边缘吸附
-     */
     private inner class FloatingWindowContainer(context: Context) : FrameLayout(context) {
 
         private var startRawX = 0f
@@ -338,6 +307,11 @@ class FloatingService : LifecycleService() {
         private var lastRawY = 0f
         private var isDragging = false
         private val scaledTouchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+        override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+            this@FloatingService.resetInactivityTimer()
+            return super.dispatchTouchEvent(ev)
+        }
 
         override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
             when (ev.actionMasked) {
@@ -354,7 +328,7 @@ class FloatingService : LifecycleService() {
                         val dy = abs(ev.rawY - startRawY)
                         if (dx > scaledTouchSlop || dy > scaledTouchSlop) {
                             isDragging = true
-                            return true          // 拦截！后续事件进入 onTouchEvent
+                            return true
                         }
                     }
                 }
@@ -395,50 +369,32 @@ class FloatingService : LifecycleService() {
             return super.onTouchEvent(event)
         }
     }
-    // ═════════════════════════════════════════════
-    //  工具
-    // ═════════════════════════════════════════════
 
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
-
 }
-
-// ═══════════════════════════════════════════════════
-//  Composable: 悬浮窗 UI（修复作用域、支持 HIDE 左右贴边形变）
-// ═══════════════════════════════════════════════════
 
 @Composable
 private fun FloatingWidgetContent() {
-    // ── 1. 状态绑定 ──
-    // 获取当日日期编码 001~007
     val todayDateCode = remember { getCurrentWeekDateCode() }
-    // 转为中文星期文案
     val todayWeekText = remember { getWeekdayText(todayDateCode) }
 
-    // 过滤：只保留当天星期对应的课程
     val scheduleList by remember {
         derivedStateOf {
             FloatingService.currentScheduleList.filter { it.weekday == todayDateCode }
         }
     }
 
-    var currentState by remember { mutableStateOf(WidgetState.CAPSULE) }
-
-    // 初始化：页面刚加载就获取当前真实时间
+    val currentState = FloatingService.currentWidgetState
     var currentVirtualTime by remember { mutableStateOf(getCurrentTime()) }
 
-    // 每秒自动更新真实时间
     LaunchedEffect(Unit) {
         while (true) {
-            currentVirtualTime = getCurrentTime() // 重新拿当前时分
-            delay(1000) // 停顿1秒，再循环
+            currentVirtualTime = getCurrentTime()
+            delay(1000)
         }
     }
 
-    /**
-     * 呼吸状态点（已移至外部或保留在此作用域均可，此处保留以防报错）
-     */
     @Composable
     fun HideStatusDot() {
         Box(
@@ -473,9 +429,10 @@ private fun FloatingWidgetContent() {
         }
     }
 
-    // ── 计算倒计时文案（精准分离上课前倒计时与上课中下课倒计时） ──
-    // 引入一个布尔状态，专门用来标记当前是否「处于上课中」
     var isCourseLive by remember { mutableStateOf(false) }
+
+    // 状态防护：保证一节课只在外层触发一次 Toast 与唤醒逻辑 ──
+    var hasNotified15Min by remember(activeCourse) { mutableStateOf(false) }
 
     val countdownText = remember(activeCourse, currentVirtualTime, scheduleList) {
         if (activeCourse == null) {
@@ -496,24 +453,39 @@ private fun FloatingWidgetContent() {
 
             if (activeCourse.weekday == todayCode) {
                 when {
-                    //  正在上课中：动态计算距离下课还有多少分钟
                     nowMin in startMin until endMin -> {
                         isCourseLive = true
-                        "${endMin - nowMin} min" // 动态输出剩余时间，供隐藏态实时刷新
+                        "${endMin - nowMin} min"
                     }
-                    //  未上课（上课前倒计时）
                     nowMin < startMin -> {
                         isCourseLive = false
-                        "${startMin - nowMin} min"
+                        val diffMin = startMin - nowMin
+
+                        // ──距离上课 <= 15 分钟时进行主动干预──
+                        if (diffMin <= 15 && !hasNotified15Min) {
+                            hasNotified15Min = true // 上锁防重复
+
+                            // 发送 Toast 提示
+                            Toast.makeText(
+                                context,
+                                "即将上课：距离 ${activeCourse.short_name} 还有 $diffMin 分钟，请前往 ${activeCourse.classroom}",
+                                Toast.LENGTH_LONG
+                            ).show()
+
+                            // 如果当前处于隐藏态，强制切换为胶囊态
+                            if (FloatingService.currentWidgetState == WidgetState.HIDE) {
+                                FloatingService.currentWidgetState = WidgetState.CAPSULE
+                            }
+                        }
+
+                        "$diffMin min"
                     }
-                    // 已结束
                     else -> {
                         isCourseLive = false
                         "已结束"
                     }
                 }
             } else {
-                // 明天或未来的课
                 isCourseLive = false
                 "明日"
             }
@@ -523,7 +495,6 @@ private fun FloatingWidgetContent() {
         }
     }
 
-    // ── 监听状态机切换 ──
     LaunchedEffect(currentState) {
         val targetWidthDp = when (currentState) {
             WidgetState.HIDE -> 36
@@ -533,10 +504,10 @@ private fun FloatingWidgetContent() {
         }
         (context as? FloatingService)?.let { service ->
             FloatingService.forceSnapToEdge(context, service, currentState, targetWidthDp)
+            service.resetInactivityTimer()
         }
     }
 
-    // ── 宽高的状态流转 ──
     val width by animateDpAsState(
         targetValue = when (currentState) {
             WidgetState.HIDE -> 36.dp
@@ -579,7 +550,6 @@ private fun FloatingWidgetContent() {
         else -> PaddingValues(16.dp)
     }
 
-    // ── UI 渲染 ──
     Box(modifier = Modifier.padding(outerPadding)) {
         Box(
             modifier = Modifier
@@ -598,7 +568,7 @@ private fun FloatingWidgetContent() {
                     )
                 )
                 .clickable {
-                    currentState = when (currentState) {
+                    FloatingService.currentWidgetState = when (currentState) {
                         WidgetState.HIDE -> WidgetState.CAPSULE
                         WidgetState.CAPSULE -> WidgetState.EXPANDED
                         WidgetState.EXPANDED -> WidgetState.CAPSULE
@@ -618,9 +588,6 @@ private fun FloatingWidgetContent() {
                     }
                 } else {
                     when (state) {
-                        // ═══════════════════════════════════════════════════
-                        // 重构后的隐藏态
-                        // ═══════════════════════════════════════════════════
                         WidgetState.HIDE -> {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -633,18 +600,15 @@ private fun FloatingWidgetContent() {
                                 ) {
                                     if (activeCourse != null && activeCourse.weekday == todayDateCode) {
                                         if (isCourseLive) {
-                                            // 上课中 → 实时渲染真实的剩余时间 ──
                                             Text(
-                                                text = countdownText.replace(" min", "m"), // 将 "25 min" 缩写为 "25m" 适配窄边缘
+                                                text = countdownText.replace(" min", "m"),
                                                 color = Color.White,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Black
                                             )
                                         } else if (countdownText.contains("min")) {
-                                            // 未上课且今日有课 → 提取并展示上课地点 ──
                                             val classroomRaw = activeCourse.classroom ?: "教室"
                                             val displayLocation = remember(classroomRaw) {
-                                                // 过滤提取纯数字房间号（如"402"），若无数字则截取前两个汉字，避免长文本溢出
                                                 val numberPart = classroomRaw.filter { it.isDigit() || (it in 'a'.. 'z') || (it in 'A'..'Z') }
                                                 if (numberPart.isNotEmpty()) numberPart else classroomRaw.take(2)
                                             }
@@ -665,26 +629,22 @@ private fun FloatingWidgetContent() {
                                                 )
                                             }
                                         } else {
-                                            // 课程已结束等非敏感状态
                                             HideStatusDot()
                                         }
                                     } else {
-                                        // 今日完全没有课程安排
                                         HideStatusDot()
                                     }
                                 }
                             }
                         }
 
-                        // ── 胶囊态（保持原样，如果上课中会同步显示动态时间文案，比原先更智能） ──
                         WidgetState.CAPSULE -> {
                             Row(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Badge(containerColor = Color.White.copy(alpha = 0.3f)) {
-                                    // 若上课中，这里会由“进行中”自动变更为动态实时时间，如 “35 min”；若喜欢在此处仍显示“进行中”，可在此处单独做 if 处理。
-                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "${activeCourse?.start_time}"
+                                    val displayCapsuleText = if (isCourseLive) "剩余$countdownText" else "倒计时 $countdownText"
                                     Text(displayCapsuleText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -698,7 +658,6 @@ private fun FloatingWidgetContent() {
                             }
                         }
 
-                        // ── 展开态：保持原样 ──
                         WidgetState.EXPANDED -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Text(
@@ -769,7 +728,7 @@ private fun FloatingWidgetContent() {
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Button(
-                                        onClick = { currentState = WidgetState.WEEKSHOW },
+                                        onClick = { FloatingService.currentWidgetState = WidgetState.WEEKSHOW },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
                                         modifier = Modifier.weight(1f).height(32.dp),
                                         contentPadding = PaddingValues(0.dp)
@@ -778,18 +737,17 @@ private fun FloatingWidgetContent() {
                                     }
 
                                     Button(
-                                        onClick = { currentState = WidgetState.HIDE },
+                                        onClick = { FloatingService.currentWidgetState = WidgetState.HIDE },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.3f)),
                                         modifier = Modifier.height(32.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp)
                                     ) {
-                                        Text("模拟隐藏", fontSize = 11.sp, color = Color.White)
+                                        Text("隐藏课表", fontSize = 11.sp, color = Color.White)
                                     }
                                 }
                             }
                         }
 
-                        // ── 周视图状态：保持原样 ──
                         WidgetState.WEEKSHOW -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Row(
@@ -828,40 +786,33 @@ private fun FloatingWidgetContent() {
     }
 }
 
-// 获取系统当前时分，格式HH:mm
 private fun getCurrentTime(): String {
     val cal = java.util.Calendar.getInstance()
     val hh = cal.get(java.util.Calendar.HOUR_OF_DAY)
-    val mm = cal.get(java.util.Calendar.MINUTE)
+    val mm = cal.get(java.util.Calendar.MINUTE) 
     return "%02d:%02d".format(hh, mm)
 }
 
-// 获取今天是周几，返回 001=周一，002=周二...
 private fun getCurrentWeekDateCode(): String {
     val cal = java.util.Calendar.getInstance()
-    val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
-    // 系统周日=1，周一=2 ... 周六=7
-    // debug
-    //return "007"
-    return when (dayOfWeek) {
-        2 -> "001" // 周一
-        3 -> "002" // 周二
-        4 -> "003" // 周三
-        5 -> "004" // 周四
-        6 -> "005" // 周五
-        7 -> "006" // 周六
-        1 -> "007" // 周日
+    return when (cal.get(java.util.Calendar.DAY_OF_WEEK)) {
+        2 -> "001"
+        3 -> "002"
+        4 -> "003"
+        5 -> "004"
+        6 -> "005"
+        7 -> "006"
+        1 -> "007"
         else -> "001"
     }
 }
 
-// 把 001 → 周一，002→周二… 用于界面显示
 private fun getWeekdayText(dateCode: String): String {
     return when (dateCode) {
         "001" -> "周一"
         "002" -> "周二"
         "003" -> "周三"
-        "004" -> "周四"
+        "004" -> "周死"
         "005" -> "周五"
         "006" -> "周六"
         "007" -> "周日"
